@@ -1,11 +1,12 @@
-use std::{env,ptr};
+use std::{env,ptr,thread,time::Duration};
 use std::ffi::{CString, NulError, c_void};
 
 use windows::Win32::System::Pipes::{CreatePipe};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation};
 use windows::Win32::Security::{SECURITY_ATTRIBUTES};
 use windows::Win32::System::Threading::{CREATE_NEW_CONSOLE, CreateProcessA, NORMAL_PRIORITY_CLASS, PROCESS_INFORMATION, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOA};
-use windows::Win32::Storage::FileSystem::{WriteFile};
+use windows::Win32::Storage::FileSystem::{ReadFile, WriteFile};
+use windows::Win32::System::IO::{OVERLAPPED};
 use windows::core::{PSTR,PCSTR};
 
 struct Handle {
@@ -36,10 +37,10 @@ fn get_args() -> Result<CString,NulError> {
 
 fn create_pipe() -> Handle {
 
-    let mut h_std_in_r: HANDLE = HANDLE(std::ptr::null_mut());
-    let mut h_std_in_w: HANDLE = HANDLE(std::ptr::null_mut());
-    let mut h_std_out_r: HANDLE = HANDLE(std::ptr::null_mut());
-    let mut h_std_out_w: HANDLE = HANDLE(std::ptr::null_mut());
+    let mut h_std_in_r: HANDLE = HANDLE(ptr::null_mut());
+    let mut h_std_in_w: HANDLE = HANDLE(ptr::null_mut());
+    let mut h_std_out_r: HANDLE = HANDLE(ptr::null_mut());
+    let mut h_std_out_w: HANDLE = HANDLE(ptr::null_mut());
 
 
     let security_attr: SECURITY_ATTRIBUTES = SECURITY_ATTRIBUTES {
@@ -104,8 +105,8 @@ fn main() {
     
     // get path to executable
     let result  = get_args().unwrap();
-    let path = result.as_ptr() as *const u8;
-    let path_w: PCSTR = PCSTR::from_raw(path); 
+    let path = result.as_ptr() as *mut u8;
+    let cmd_line: PSTR = PSTR::from_raw(path); 
 
     println!("path: {:?}", result);
 
@@ -127,7 +128,7 @@ fn main() {
 
     // prepare arg for CreateProcess
     let mut pi: PROCESS_INFORMATION = PROCESS_INFORMATION {..Default::default()};
-    let cmd_line = Some(PSTR::null());
+    let app_name = PCSTR::null();
     let env: *const c_void = ptr::null();
     let curr_directory = PCSTR::null();
     let sa = Some(&my_handle.security_attr as *const SECURITY_ATTRIBUTES);
@@ -135,8 +136,8 @@ fn main() {
 
      let result = unsafe {
         CreateProcessA(
-            path_w, 
-            cmd_line, 
+            app_name, 
+            Some(cmd_line), 
             sa, 
             sa, 
             true, 
@@ -153,11 +154,42 @@ fn main() {
             println!("[+] Process create Successfully !");
             let _ = unsafe {CloseHandle(my_handle.h_std_in_read)};
             let _ = unsafe {CloseHandle(my_handle.h_std_out_write)};
+            thread::sleep(Duration::from_secs(2));
         },
         Err(e) => println!("[-] Process creation failed: {e}"), 
     };
 
+    let buffer: [u8;15] = [0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63];
+    let mut byte_written: u32= 0;
+    let mut overlapped = OVERLAPPED{..Default::default()};
+
+    let result = unsafe {
+        //lpnumberofbytewritten w/o coercion, lpoverlapped w/ coercion
+        WriteFile(my_handle.h_std_in_write, Some(&buffer), Some(&mut byte_written as *mut u32), Some(&mut overlapped)) 
+    };
+
+    match result {
+        Ok(()) => println!("[+] Successfully write 14 bytes into process:{:?}", byte_written),
+        Err(e) => println!("[-] Error while writing in process: {e}"),
+    };
+
+    let mut buffer_out:[u8;512] = [0;512];
+    let mut byte_read: u32 = 0;
+
+    let result = unsafe { 
+        ReadFile(my_handle.h_std_out_read, Some(&mut buffer_out),Some(&mut byte_read), Some(&mut overlapped))
+    };
     
+    match result {
+        Ok(_) => {
+            println!("[+] Bytes recieved: {:?}",byte_read);
+            let data = String::from_utf8_lossy(&buffer_out);
+            println!("[*] STDOUT: {:?}",data);
+
+        },
+        Err(e) => println!("[-] Error while recieved: {e}")
+    }
+
     unsafe {
     
         let _ = CloseHandle(my_handle.h_std_in_write);
