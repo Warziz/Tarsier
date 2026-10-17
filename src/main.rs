@@ -1,12 +1,15 @@
 use std::{env,ptr,thread,time::Duration};
 use std::ffi::{CString, NulError, c_void};
 
+use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+use windows::Win32::System::Memory::{MEM_COMMIT,MEM_PRIVATE, MEMORY_BASIC_INFORMATION, PAGE_GUARD, PAGE_NOACCESS, VirtualQueryEx};
 use windows::Win32::System::Pipes::{CreatePipe};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation};
 use windows::Win32::Security::{SECURITY_ATTRIBUTES};
 use windows::Win32::System::Threading::{CREATE_NEW_CONSOLE, CreateProcessA, NORMAL_PRIORITY_CLASS, PROCESS_INFORMATION, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOA};
 use windows::Win32::Storage::FileSystem::{ReadFile, WriteFile};
 use windows::Win32::System::IO::{OVERLAPPED};
+use windows::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
 use windows::core::{PSTR,PCSTR};
 
 struct Handle {
@@ -100,6 +103,75 @@ fn create_pipe() -> Handle {
 
 }
 
+fn find_offset(ns_handle: HANDLE){
+    
+    let mut system_info: SYSTEM_INFO = SYSTEM_INFO {..Default::default()};
+    unsafe { GetSystemInfo(&mut system_info);}
+
+    let mut memory_info: MEMORY_BASIC_INFORMATION = MEMORY_BASIC_INFORMATION {..Default::default()};
+    let start_address = system_info.lpMinimumApplicationAddress as *const c_void;
+    let memory_info_size: usize = size_of::<MEMORY_BASIC_INFORMATION>();
+    let mut addr: usize = start_address as usize;
+    let mut read_memory_buffer = vec![0u8;4096];
+    let mut bytes_read :usize = 0;
+    let mut current_addr: usize;
+
+    loop {
+
+        let result  = unsafe {
+            VirtualQueryEx(ns_handle, Some(addr as *const c_void), &mut memory_info, memory_info_size)
+        };
+
+        // verify VirtualQueryEx not failed
+        if result == 0 {
+            println!("[-] Failed to get VirtualMemory Region size equal: {result}");
+            break;
+        }
+
+        // save current addr for read memory
+        current_addr = addr;
+        // prepare addr for next iteration
+        addr += memory_info.RegionSize;
+        // println!("[*] Next region base address: {:#x}", addr);
+        if addr >= system_info.lpMaximumApplicationAddress as usize {
+            break;
+        }
+
+        // search for correct memory region
+        // Verify is memory is commited
+        if memory_info.State != MEM_COMMIT {
+            continue;
+        }
+        // Verify if memory region is no_acces or is a page guard
+        if memory_info.Protect.contains(PAGE_GUARD) || memory_info.Protect.contains(PAGE_NOACCESS) {
+            continue;
+        }
+        // Verify if region MEM_PRIVATE
+        if memory_info.Type != MEM_PRIVATE {
+            continue;
+        }
+
+
+        println!("[*] Reading @ {:#x}, Region size: {:?}",addr,memory_info.RegionSize);
+        
+        let result = unsafe {
+            ReadProcessMemory(ns_handle,
+                current_addr as *const c_void,
+                read_memory_buffer.as_mut_ptr() as *mut c_void,
+                read_memory_buffer.len(), 
+                Some(&mut bytes_read))
+        };
+
+        match result {
+            Ok(_) => println!("[+] Successfully reading @ {:#x}, length {:?}",addr,bytes_read),
+            Err(e) => println!("[-] Failed to read process memory: {e}, bytes read {:?}", bytes_read),
+        }
+
+    }
+
+}
+
+
 
 fn main() {
     
@@ -159,6 +231,7 @@ fn main() {
         Err(e) => println!("[-] Process creation failed: {e}"), 
     };
 
+    // send bytes pattern
     let buffer: [u8;15] = [0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63];
     let mut byte_written: u32= 0;
     let mut overlapped = OVERLAPPED{..Default::default()};
@@ -183,12 +256,15 @@ fn main() {
     match result {
         Ok(_) => {
             println!("[+] Bytes recieved: {:?}",byte_read);
-            let data = String::from_utf8_lossy(&buffer_out);
-            println!("[*] STDOUT: {:?}",data);
+            // let data = String::from_utf8_lossy(&buffer_out);
+            // println!("[*] STDOUT: {:?}",data);
 
         },
         Err(e) => println!("[-] Error while recieved: {e}")
     }
+
+    let ns_handle : HANDLE = pi.hProcess;
+    find_offset(ns_handle);
 
     unsafe {
     
