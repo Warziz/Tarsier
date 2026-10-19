@@ -1,3 +1,4 @@
+
 use std::{env,ptr,thread,time::Duration};
 use std::ffi::{CString, NulError, c_void};
 
@@ -152,19 +153,28 @@ fn find_offset(ns_handle: HANDLE){
         }
 
 
-        println!("[*] Reading @ {:#x}, Region size: {:?}",addr,memory_info.RegionSize);
-        
-        let result = unsafe {
-            ReadProcessMemory(ns_handle,
-                current_addr as *const c_void,
-                read_memory_buffer.as_mut_ptr() as *mut c_void,
-                read_memory_buffer.len(), 
-                Some(&mut bytes_read))
-        };
+        println!("[*] Reading @ {:#x}, Region size: {:?}",current_addr,memory_info.RegionSize);
+        let region_start: usize = current_addr;
+        // while loop for full reading memory region
+        loop {
+            
+            if (current_addr - region_start) == memory_info.RegionSize {
+                break;
+            } else {
+                let result = unsafe {
+                    ReadProcessMemory(ns_handle,
+                        current_addr as *const c_void,
+                        read_memory_buffer.as_mut_ptr() as *mut c_void,
+                        read_memory_buffer.len(), 
+                        Some(&mut bytes_read))
+                };
 
-        match result {
-            Ok(_) => println!("[+] Successfully reading @ {:#x}, length {:?}",addr,bytes_read),
-            Err(e) => println!("[-] Failed to read process memory: {e}, bytes read {:?}", bytes_read),
+                match result {
+                    Ok(_) => println!("[+] Successfully reading @ {:#x}, length {:?}",current_addr,bytes_read),
+                    Err(e) => println!("[-] Failed to read process memory: {e}, @ {:#x}", current_addr ),
+                }
+                    current_addr += read_memory_buffer.len();
+            }   
         }
 
     }
@@ -179,8 +189,6 @@ fn main() {
     let result  = get_args().unwrap();
     let path = result.as_ptr() as *mut u8;
     let cmd_line: PSTR = PSTR::from_raw(path); 
-
-    println!("path: {:?}", result);
 
     // get handle of hStdInput / hStdOuput
     let my_handle = create_pipe();
