@@ -1,9 +1,10 @@
 
+use std::default;
 use std::{env,ptr,thread,time::Duration};
 use std::ffi::{CString, NulError, c_void};
 
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
-use windows::Win32::System::Memory::{MEM_COMMIT,MEM_PRIVATE, MEMORY_BASIC_INFORMATION, PAGE_GUARD, PAGE_NOACCESS, VirtualQueryEx};
+use windows::Win32::System::Memory::{MEM_COMMIT, MEM_PRIVATE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, VirtualProtectEx, VirtualQueryEx};
 use windows::Win32::System::Pipes::{CreatePipe};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation};
 use windows::Win32::Security::{SECURITY_ATTRIBUTES};
@@ -21,7 +22,13 @@ struct Handle {
     security_attr: SECURITY_ATTRIBUTES,
 }
 
-
+#[derive(Default)]
+struct MemoryInfo {
+    r_base_addr: usize,
+    r_size: usize,
+    offset: usize,
+    oldflag: PAGE_PROTECTION_FLAGS,
+}
 
 fn get_args() -> Result<CString,NulError> {
 
@@ -104,7 +111,7 @@ fn create_pipe() -> Handle {
 
 }
 
-fn find_offset(ns_handle: HANDLE, pattern: &[u8]){
+fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
     
     let mut system_info: SYSTEM_INFO = SYSTEM_INFO {..Default::default()};
     unsafe { GetSystemInfo(&mut system_info);}
@@ -117,7 +124,7 @@ fn find_offset(ns_handle: HANDLE, pattern: &[u8]){
     let mut bytes_read :usize = 0;
     let mut current_addr: usize;
 
-    'outer: loop {
+    loop {
 
         let result  = unsafe {
             VirtualQueryEx(ns_handle, Some(addr as *const c_void), &mut memory_info, memory_info_size)
@@ -126,7 +133,7 @@ fn find_offset(ns_handle: HANDLE, pattern: &[u8]){
         // verify VirtualQueryEx not failed
         if result == 0 {
             println!("[-] Failed to get VirtualMemory Region size equal: {result}");
-            break;
+            break None;
         }
 
         // save current addr for read memory
@@ -135,7 +142,7 @@ fn find_offset(ns_handle: HANDLE, pattern: &[u8]){
         addr += memory_info.RegionSize;
         // println!("[*] Next region base address: {:#x}", addr);
         if addr >= system_info.lpMaximumApplicationAddress as usize {
-            break;
+            break None;
         }
 
         // search for correct memory region
@@ -177,7 +184,14 @@ fn find_offset(ns_handle: HANDLE, pattern: &[u8]){
                             Some(idx) => {
                                 let offset = current_addr + idx;
                                 println!("[+] Find pattern in memory at {:#x}",offset);
-                                break 'outer;
+                                
+                                let mem_info: MemoryInfo = MemoryInfo {
+                                    r_base_addr: region_start,
+                                    r_size: memory_info.RegionSize,
+                                    offset: offset,
+                                    oldflag: memory_info.Protect
+                                };
+                                return Some(mem_info);
                             },
                             None => {}
                         }
@@ -193,6 +207,26 @@ fn find_offset(ns_handle: HANDLE, pattern: &[u8]){
 
 }
 
+
+fn change_protect(ns_handle: HANDLE, mem_info: MemoryInfo){
+
+    let new_page_protect: PAGE_PROTECTION_FLAGS = PAGE_EXECUTE_READ;
+    let mut old_page_protect: PAGE_PROTECTION_FLAGS = mem_info.oldflag;
+    unsafe {
+        let result = VirtualProtectEx(
+            ns_handle, 
+            mem_info.r_base_addr as *const c_void,
+            mem_info.r_size, 
+            new_page_protect, 
+            &mut old_page_protect);
+
+        match result {
+            Ok(_) => println!("[+] Successfully change permission at @ {:#x}",mem_info.r_base_addr),
+            Err(e) => println!("[-] Can't change permission: {e}"),
+        }
+    };
+
+}
 
 
 fn main() {
@@ -284,7 +318,15 @@ fn main() {
     }
 
     let ns_handle : HANDLE = pi.hProcess;
-    find_offset(ns_handle, &buffer);
+    let result = find_offset(ns_handle, &buffer);
+
+    let mem_info = match result{   
+        Some(mem_info) => mem_info,
+        None => MemoryInfo::default(),
+    };
+
+    
+    change_protect(ns_handle, mem_info);
 
     unsafe {
     
