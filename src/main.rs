@@ -104,7 +104,7 @@ fn create_pipe() -> Handle {
 
 }
 
-fn find_offset(ns_handle: HANDLE){
+fn find_offset(ns_handle: HANDLE, pattern: &[u8]){
     
     let mut system_info: SYSTEM_INFO = SYSTEM_INFO {..Default::default()};
     unsafe { GetSystemInfo(&mut system_info);}
@@ -117,7 +117,7 @@ fn find_offset(ns_handle: HANDLE){
     let mut bytes_read :usize = 0;
     let mut current_addr: usize;
 
-    loop {
+    'outer: loop {
 
         let result  = unsafe {
             VirtualQueryEx(ns_handle, Some(addr as *const c_void), &mut memory_info, memory_info_size)
@@ -153,9 +153,9 @@ fn find_offset(ns_handle: HANDLE){
         }
 
 
-        println!("[*] Reading @ {:#x}, Region size: {:?}",current_addr,memory_info.RegionSize);
+        // println!("[*] Reading @ {:#x}, Region size: {:?}",current_addr,memory_info.RegionSize);
         let region_start: usize = current_addr;
-        // while loop for full reading memory region
+        // loop for full reading memory region
         loop {
             
             if (current_addr - region_start) == memory_info.RegionSize {
@@ -170,7 +170,19 @@ fn find_offset(ns_handle: HANDLE){
                 };
 
                 match result {
-                    Ok(_) => println!("[+] Successfully reading @ {:#x}, length {:?}",current_addr,bytes_read),
+                    Ok(_) => {
+                        // println!("[+] Successfully reading @ {:#x}, length {:?}",current_addr,bytes_read);
+                        let index = read_memory_buffer.windows(pattern.len()).position(|window| window == pattern);
+                        match index {
+                            Some(idx) => {
+                                let offset = current_addr + idx;
+                                println!("[+] Find pattern in memory at {:#x}",offset);
+                                break 'outer;
+                            },
+                            None => {}
+                        }
+                        
+                    },
                     Err(e) => println!("[-] Failed to read process memory: {e}, @ {:#x}", current_addr ),
                 }
                     current_addr += read_memory_buffer.len();
@@ -272,7 +284,7 @@ fn main() {
     }
 
     let ns_handle : HANDLE = pi.hProcess;
-    find_offset(ns_handle);
+    find_offset(ns_handle, &buffer);
 
     unsafe {
     
