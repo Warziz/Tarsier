@@ -1,6 +1,6 @@
 # Tarsier
 
-![tarsier](/Tarsier/img/tarsier.jpg "tarsier")
+![tarsier](/img/tarsier.jpg "tarsier")
 
 Cute isn't he ?
 
