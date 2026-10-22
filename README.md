@@ -12,7 +12,7 @@ Cute isn't he ?
 
 > TL;DR : Tarsier is PoC of recent Defense Evasion technique that can inject into a process an executable without using VirtualAllocEx and WriteProcessMemory APIs.
 
-Process injection is a very known technique for evasion and persistance. The goal is to force a trusted Windows process to run arbitrary code [T1055](https://attack.mitre.org/techniques/T1055/).
+Process injection is a very known technique for evasion and persistance. The goal is to force a trusted Windows process to run arbitrary code ([T1055](https://attack.mitre.org/techniques/T1055/)).
 The classic way to achieve this technique is to use some Windows API calls like: `OpenProcess`, `WriteProcessMemory` and `CreateRemoteThread`.
 Nowadays the counter-mesures for find thoses evils behavior are getting better and better. A classic way to trigger alert is to hook API's call particularly the most suspicious. Then verifying the callstack for find the succession of: `OpenProcess` -> `VirtualAllocEx` -> `WriteProcessMemory` -> `CreateRemoteThread`.
 
@@ -25,7 +25,7 @@ For accomplish that, we will use the STDIN of the programme and the Pipe (or Nam
 $ > ./tarsier.exe c:\Windows\System32\nslookup.exe
 ```
 
-### Sources
+### Links
 
 #### Main ressources
 - [https://sensepost.com/blog/2026/process-parameter-poisoning/](https://sensepost.com/blog/2026/process-parameter-poisoning/)
