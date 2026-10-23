@@ -40,7 +40,7 @@ $ > ./tarsier.exe c:\Windows\System32\nslookup.exe
 ```
 
 ![tarsier_running](/img/tarsier_running.png "tarsier_running")
-![tarsier_log](/img/tarsier_log "tarsier_log")
+![tarsier_log](/img/tarsier_log.png "tarsier_log")
 
 ### Remarks
 
