@@ -1,6 +1,10 @@
 # Tarsier
 
-![tarsier](/img/tarsier.jpg "tarsier")
+<p align="center">
+  <img src="/img/tarsier.jpg" alt="tarsier" width="500">
+  <br>
+  <em>A Tarsier</em>
+</p>
 
 Cute isn't he ?
 
