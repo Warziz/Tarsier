@@ -19,19 +19,19 @@ software is provided "as is", without warranty of any kind, express or
 implied. You use this project at your own risk and are solely responsible
 for complying with all applicable laws.
 
-### What is this PoC about ?
+### What is this PoC about?
 
-> TL;DR : Tarsier is PoC of recent Defense Evasion technique that can inject into a process an executable without using VirtualAllocEx and WriteProcessMemory APIs.
+> TL;DR: Tarsier is a PoC of a recent Defense Evasion technique that can inject an executable into a process without using the OpenProcess, VirtualAllocEx, WriteProcessMemory, CreateRemoteThread APIs.
 
-Process injection is a very known technique for evasion and persistance. The goal is to force a trusted Windows process to run arbitrary code ([T1055](https://attack.mitre.org/techniques/T1055/)).
-The classic way to achieve this technique is to use some Windows API calls like: `OpenProcess`, `WriteProcessMemory` and `CreateRemoteThread`.
-Nowadays the counter-mesures for find thoses evils behavior are getting better and better. A classic way to trigger alert is to hook API's call particularly the most suspicious. Then verifying the callstack for find the succession of: 
+Process injection is a well-known technique for evasion and persistence. The goal is to force a trusted Windows process to run arbitrary code ([T1055](https://attack.mitre.org/techniques/T1055/)).
+The classic way to achieve this is to use Windows API calls such as `OpenProcess`, `WriteProcessMemory`, and `CreateRemoteThread`.
+Nowadays, countermeasures for detecting this kind of malicious behavior are getting better and better. A common way to trigger an alert is to hook API calls — particularly the most suspicious ones — and then check the call stack for the following sequence:
 
 `OpenProcess` -> `VirtualAllocEx` -> `WriteProcessMemory` -> `CreateRemoteThread`.
 
-This new technique was discovered by two researcher of Orange Cyberdefense [here](https://sensepost.com/blog/2026/process-parameter-poisoning/) and modifying by [ZeroSalarium](https://www.zerosalarium.com/2026/09/edr-evasion-process-injection-without-WriteProcessMemory.html). The goal is to inject a process without relying on the above API calls named before.
+This new technique was discovered by two researchers at Orange Cyberdefense [here](https://sensepost.com/blog/2026/process-parameter-poisoning/) and later adapted by [ZeroSalarium](https://www.zerosalarium.com/2026/09/edr-evasion-process-injection-without-WriteProcessMemory.html). The goal is to inject into a process without relying on the API calls mentioned above.
 
-For accomplish that, we will use the STDIN of the programme and the Pipe (or NamedPipe). The prerequisite is to target a program that require a interactive console (netsh.exe or nslookup.exe for example). The global idea is to send our payload to a newly created process with named pipe throught the STDIN without executing it. The payload stay in memory, then we need to find it, change the memory region protection and hijack the RIP for redirect the execution to our payload.
+To achieve this, we use the target program's STDIN and a (named) pipe. The prerequisite is to target a program that requires an interactive console (e.g., `netsh.exe` or `nslookup.exe`). The general idea is to send our payload to a newly created process via a named pipe through STDIN, without executing it. The payload stays in memory; we then need to locate it, change the memory region's protection, and hijack RIP to redirect execution to our payload.
 
 
 ### Usage
@@ -39,13 +39,13 @@ For accomplish that, we will use the STDIN of the programme and the Pipe (or Nam
 $ > ./tarsier.exe c:\Windows\System32\nslookup.exe
 ```
 
-![tarsier](/img/tarsier_running.png "tarsier_running")
-
+![tarsier_running](/img/tarsier_running.png "tarsier_running")
+![tarsier_log](/img/tarsier_log "tarsier_log")
 
 ### Remarks
 
-This PoC was tested on Windows 11 25H2 with only Windows Defenders, retex about this PoC against EDR are welcome (IN AUTHORIZED ENVIRONMENT OF COURSE).
- 
+This PoC was tested on Windows 11 25H2 with only Windows Defender enabled. Feedback on how it performs against other EDRs is welcome (IN AN AUTHORIZED ENVIRONMENT, of course).
+
 ### Links
 
 #### Main ressources
@@ -56,4 +56,4 @@ This PoC was tested on Windows 11 25H2 with only Windows Defenders, retex about 
 - [https://fluxsec.red/remote-process-dll-injection](https://fluxsec.red/remote-process-dll-injection)
 - [https://fluxsec.red/winapi-rust-intro](https://fluxsec.red/winapi-rust-intro)
 - [https://microsoft.github.io/windows-docs-rs/doc/windows](https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/System/Memory/fn.VirtualProtectEx.html)
-- And of course the Windows documentation
+- And of course the Windows documentations
