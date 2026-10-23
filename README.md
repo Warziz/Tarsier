@@ -40,7 +40,7 @@ $ > ./tarsier.exe c:\Windows\System32\nslookup.exe
 ```
 
 <p align="center">
-  <img src="/img/tarsier_running.png" alt="tarsier running" width="700">
+  <img src="/img/tarsier_running.png" alt="tarsier running" width="500">
   <br>
   <em>Tarsier injecting into nslookup.exe</em>
 </p>
