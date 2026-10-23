@@ -39,7 +39,13 @@ To achieve this, we use the target program's STDIN and a (named) pipe. The prere
 $ > ./tarsier.exe c:\Windows\System32\nslookup.exe
 ```
 
-![tarsier_running](/img/tarsier_running.png "tarsier_running")
+<p align="center">
+  <img src="/img/tarsier_running.png" alt="tarsier running" width="700">
+  <br>
+  <em>Tarsier injecting into nslookup.exe</em>
+</p>
+
+
 ![tarsier_log](/img/tarsier_log.png "tarsier_log")
 
 ### Remarks
