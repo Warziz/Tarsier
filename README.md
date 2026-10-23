@@ -46,7 +46,11 @@ $ > ./tarsier.exe c:\Windows\System32\nslookup.exe
 </p>
 
 
-![tarsier_log](/img/tarsier_log.png "tarsier_log")
+<p align="center">
+  <img src="/img/tarsier_log.png" alt="tarsier log" width="300">
+  <br>
+  <em>Run tarsier.exe targeting nslookup.exe</em>
+</p>
 
 ### Remarks
 
